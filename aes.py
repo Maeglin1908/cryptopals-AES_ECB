@@ -462,9 +462,8 @@ def usage():
                     If it's not a multiple of 16 bytes, it will be padded with '\x00'.
 
     --decrypt (Optional) : Enable decryption instead of encryption.
-                           NOT IMPLEMENTED YET
 
-    If -o is not specified, the ouput will be on stdin as hexadecimal.
+    If -o is not specified, the ouput will be on stdout as hexadecimal.
     """.format(sys.argv[0], sys.argv[0]))
 
 
