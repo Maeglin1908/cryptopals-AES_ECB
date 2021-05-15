@@ -1,7 +1,9 @@
 # Inspired with https://kavaliro.com/wp-content/uploads/2014/03/AES.pdf
+
 import base64
 import sys
 import binascii
+
 
 # Can't find anything to create these two tables by myself... so ...
 sbox = [
@@ -103,6 +105,59 @@ def xorBytes(a, b):
     return b''.join([bytes([i ^ j]) for (i, j) in zip(a, b)])
 
 
+def shiftRow(data):
+    data_split_1 = splitSized(data, 4)
+    return b''.join(byteRotateLeft(data_split_1[i], i) for i in range(len(data_split_1)))
+
+
+def shiftForMixColumn(b):
+    s = b << 1
+    if s > 0xff:
+        s = (s & 0xff) ^ 0b11011
+    return s
+
+
+def mixColumn(col):
+    mixed = []
+    matrix = [
+        [2, 3, 1, 1],
+        [1, 2, 3, 1],
+        [1, 1, 2, 3],
+        [3, 1, 1, 2]
+        ]
+    for i in range(4):   # for each byte of the column
+        tmp_mixed = []
+        for j in range(4):
+            if matrix[i][j] == 1:
+                tmp_mixed.append(col[j])
+            elif matrix[i][j] == 2:
+                shifted_byte = shiftForMixColumn(col[j])
+                tmp_mixed.append(shifted_byte)
+            elif matrix[i][j] == 3:
+                shifted_byte = shiftForMixColumn(col[j]) ^ col[j]
+                tmp_mixed.append(shifted_byte)
+        xored_total = 0
+        for k in tmp_mixed:
+            xored_total ^= k
+        mixed.append(xored_total)
+    return mixed
+
+
+def mixColumns(data):
+    # Following this guide :
+    # https://www.angelfire.com/biz7/atleast/mix_columns.pdf
+    d = transpose(splitSized(data, 4))
+    mixed = []
+    for i in range(4):
+        mixed.append(mixColumn(d[i]))
+    mixed_transposed = transpose(mixed)
+    return b''.join([bytes(j) for j in mixed_transposed])
+
+
+def xorMatrices(a, b):
+    return b''.join([xorBytes(i, j) for (i, j) in zip(a, b)])
+
+
 def roundKeyGeneration(key, round_num):
     w = splitSized(key, 4)
     gw = byteRotateLeft(w[3], 1)
@@ -115,23 +170,60 @@ def roundKeyGeneration(key, round_num):
     return w4 + w5 + w6 + w7
 
 
+def processRoundKey(data, round_key, round_nb):
+    data_encoded = data
+    data_encoded = bytesSub(data_encoded)
+    # print("After subbytes")
+    # print(binascii.hexlify(data_encoded))
+    data_encoded = shiftRow(data_encoded)
+    # print("After shiftRow")
+    # print(binascii.hexlify(data_encoded))
+    if round_nb != 10:
+        data_encoded = mixColumns(data_encoded)
+        # print("After mixcolunm")
+        # print(binascii.hexlify(data_encoded))
+     
+    transposed_key = transpose(splitSized(round_key, 4))
+    splitted_data = splitSized(data_encoded, 4)
+    data_encoded = xorMatrices(transposed_key, splitted_data)
+    # data_encoded = transpose(splitSized(data_encoded, 4))
+    data_encoded = splitSized(data_encoded, 4)
+    data_encoded = b''.join([bytes(j) for j in data_encoded])
+    # print(binascii.hexlify(data_encoded))
+    return data_encoded
+
+
+def processBlock(data, origin_key):
+    keys = [origin_key]
+    for i in range(1, 11):
+        keys.append(roundKeyGeneration(keys[-1], i))
+    transposed_key_0 = transpose(splitSized(keys[0], 4))
+    transposed_data = transpose(splitSized(data, 4))
+    encoded_block = xorMatrices(transposed_key_0, transposed_data)
+    for i in range(1, 11):
+        encoded_block = processRoundKey(encoded_block, keys[i], i)
+        if i == 10:
+            encoded_block_transposed = transpose(splitSized(encoded_block, 4))
+            encoded_block = b''.join([bytes(j) for j in encoded_block_transposed])
+    return encoded_block
+
+
 data = base64.b64decode(open(sys.argv[1], 'rb').read())
+plain = b"Two One Nine Two"
 # key = b"YELLOW SUBMARINE"
-origin_key = b"Thats my Kung Fu"
+key = b"Thats my Kung Fu"
 bs = 16
 
 if len(data) % bs != 0:
     print("Data lenght is not corresponding to the modulo block size of 16")
     exit(2)
-if len(origin_key) != bs:
+if len(key) != bs:
     print("Key length is not corresponding to the block size of 16")
     exit(2)
 
 chunks = splitSized(data, bs)
 # print(splitSized('abcdefghijklmnop', 4))
 # print(chunks)
-keys = [origin_key]
-for i in range(1, 11):
-    keys.append(roundKeyGeneration(keys[-1], i))
-for i in keys:
-    print("{}".format(binascii.hexlify(i)))
+
+print("Encoded block : {}".format(binascii.hexlify(processBlock(plain, key))))
+print("Encoded block : {}".format(binascii.hexlify(processBlock(b'\x00'*16, key))))
