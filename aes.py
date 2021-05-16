@@ -448,6 +448,27 @@ def encrypt(data: bytes, key: bytes) -> bytes:
     return encrypted
 
 
+def forceBytes(data):
+    if type(data) == str:
+        return data.encode('iso-8859-1')
+    return data
+
+
+def forceStr(data):
+    if type(data) == bytes:
+        return data.decode('iso-8859-1')
+    return data
+
+
+def readInput(data: bytes, mode: str) -> bytes:
+    if mode == "b64":
+        return base64.b64decode(forceStr(data))
+    elif mode == "hex":
+        return bytes(bytearray.fromhex(forceStr(data)))
+    elif mode == "raw":
+        return forceBytes(data)
+
+
 def usage():
     print("""Usage of AES-ECB
     Example :
@@ -457,13 +478,15 @@ def usage():
     -k (Required) : File containing the key, or key between quotes (i.e example)
                     If it's not equal to 16 bytes, it will be truncated or padded.
 
-    -d (Required) : File containing data to encrypt/decrypt.
+    -d (Required) : File containing data to encrypt/decrypt, or data directly.
                     Can be text between quotes if encrypting
                     If it's not a multiple of 16 bytes, it will be padded with '\x00'.
+    
+    --dmode (Optional) : raw/b64/hex : Specify the data-type on input
 
     --decrypt (Optional) : Enable decryption instead of encryption.
-
-    If -o is not specified, the ouput will be on stdout as hexadecimal.
+    
+    -o (Optional) : Specify the output file. If not specified, the ouput will be on stdout as hexadecimal.
     """.format(sys.argv[0], sys.argv[0]))
 
 
@@ -472,8 +495,9 @@ def main():
     arg_key = ""
     arg_data = ""
     output_file = ""
+    dmode = "raw"
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "hk:d:o:", ["decrypt"])
+        opts, args = getopt.getopt(sys.argv[1:], "hk:d:o:", ["decrypt", "dmode="])
         for o, a in opts:
             if o in ("-h"):
                 usage()
@@ -486,6 +510,10 @@ def main():
                 output_file = a
             elif o in ("--decrypt"):
                 decryption = True
+            elif o in ("--dmode"):
+                dmode = a
+                if a not in ("b64", "hex", "raw"):
+                    raise Exception("Unknow Mode !")
             else:
                 assert False, "unhandled option"
         if arg_key == "" or arg_data == "":
@@ -508,10 +536,15 @@ def main():
     else:
         arg_key = arg_key.encode()
 
-    if len(arg_data) % bs != 0:
-        print("Data lenght is not corresponding to the modulo block size of {}.".format(bs))
-        print("It will be padded.")
-        arg_data += b'\x00' * (bs - (arg_data % bs))
+    arg_data = readInput(arg_data, dmode)
+
+    if decryption:
+        if len(arg_data) % bs != 0:
+            print("Data lenght is not corresponding to the modulo block size of {}.".format(bs))
+            exit(2)
+    else:
+        diff = bs - (len(arg_data) % bs)
+        arg_data += bytes([diff]) * diff
 
     if len(arg_key) != bs:
         if len(arg_key) < 16:
